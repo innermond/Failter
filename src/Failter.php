@@ -1,4 +1,4 @@
-<?php namespace App;
+<?php namespace Innermond\Failter;
 
 class Failter {
 
@@ -31,7 +31,11 @@ class Failter {
 
 	private $field;
 
-	public function on($name) {
+	public function on(string $name) {
+    // check even for long empty string case
+    if (empty(trim($name))) {
+     throw new \InvalidArgumentException('missing field');
+    }
 		$this->field = $name;
 		return $this;
 	}
