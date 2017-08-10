@@ -2,14 +2,48 @@
 
 class Failter {
 
+  /**
+   * $defs = ['name' => [
+   *    [$filter, $msg], $filter
+   *  ]
+   * ]
+   */
+  public function fromDefinitions($definitions) {
+    foreach($definitions as $k => $defs) {
+      // operate on field $k
+      $this->on($k);
+      if ( ! is_iterable($defs)) $defs = [$defs];
+      foreach($defs as $def) {
+        //  array not asociative
+        $sequential = is_iterable($def) ?
+          count(array_filter(array_keys($def), 'is_string')) == 0 :
+          false;
+        $message = null;
+        if ($sequential) {
+          [$filter, $message] = $def;
+          $this->with($filter, $message);
+        } else {
+          $filter = $def;
+          $this->with($filter);
+        }
+      }
+    }
+    // no more field to operate on
+    $this->field = null;
+    return $this;
+  }
+
 	private $errmsg;
 
 	private function message($key, $msg) {
-		if (empty($msg)) return;
+		if (empty($msg) || is_null($msg)) return;
 		$this->errmsg[$key][] = $msg;
 	}
 
-	private $def;
+  /* hold definition array for filters that is consumed whan call run method
+     after run works $def is empty
+  */
+	private $def=[];
 
 	public function callback($key, callable $fn, ...$msg) {
 		$this->def[$key][] = ['filter' => \FILTER_CALLBACK, 'options' => $fn];
@@ -64,7 +98,8 @@ class Failter {
 	private $error;
 	private $defs;
 
-	public function run($params=[]) {
+  public function run($params=[]) {
+    if (! is_iterable($params)) return false;
 		$this->field = null;
 		$this->defs = [];
 		while (count($this->def)) {
@@ -94,7 +129,7 @@ class Failter {
 					$msg = isset($this->errmsg[$key]) ?
 					array_shift($this->errmsg[$key]) : ['invalid'];
         else // consume stored error message in sync with foreach of $newcarry
-          array_shift($this->errmsg[$key]);
+          if (isset($this->errmsg[$key])) array_shift($this->errmsg[$key]);
 				if ( ! is_null($msg)) $this->error[$key][] = $msg;
 			}
 			return array_merge_recursive($carry, $newcarry);
