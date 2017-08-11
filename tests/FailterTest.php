@@ -5,6 +5,8 @@ use Innermond\Failter as Me;
 
 class FailterTest extends TestCase {
 
+  use Test\FailterTrait;
+
 	private $fail;
 
 	public function setUp() {
@@ -52,6 +54,13 @@ class FailterTest extends TestCase {
 		$this->assertEmpty($filtered);
 	}
 
+  private function len($min, $max) : callable {
+    return function($el) use ($min, $max) {
+      $len = mb_strlen($el);
+      return ($len >= $min and $len <= $max) ? $el : false;
+    };
+  }
+
   public function paramsCases() {
     return [
       'email is ok' => [
@@ -65,10 +74,46 @@ class FailterTest extends TestCase {
         false,
       ],
       'length error' => [
-         ['len' => function($el) { return mb_strlen($el) < 5 ? false : $el;}],
+         ['len' => $this->len(5, 10)],
          ['len' => 'abc'],
          false,
       ],
+      'name has only letters and space, between 5 and 50 characters' => [
+        ['name' => [
+            '/^[a-z\ ]+$/i',
+            $this->len(5, 50),
+          ]
+        ],
+        ['name' => 'ab c'],
+        false,
+      ],
+      [
+        ['name' => [
+            '/^[a-z\ ]+$/i',
+            $this->len(5, 50),
+          ]
+        ],
+        ['name' => 'qwert'],
+        ['name' => 'qwert'],
+      ],
+      [
+        // needs to be array
+        ['cobai' => [
+            // from 1 to 10
+            [ 'filter' => \FILTER_VALIDATE_INT, 
+              'flags' => \FILTER_REQUIRE_ARRAY,
+              'options' => ['min_range' => 1, 'max_range' => 10]],
+            // except 5
+            function($el) { 
+              // $el is stringized
+              return $el === '5' ? false : $el;
+            },
+          ]
+        ],
+        ['cobai' => ['a', '6']],
+        ['cobai' => '6'],
+        false,
+      ]
     ];
   }
 
@@ -79,4 +124,29 @@ class FailterTest extends TestCase {
     $filtered = $this->fail->fromDefinitions($def)->run($params);
     $this->assertEquals($filtered, $want);
   }
+
+  public function syncMessagesCases() {
+    return [
+     [
+      ['name' => [
+        [$this->len(1, 2), 'length.abnormal'], // filter one
+        '/^\d$/',
+        [\FILTER_VALIDATE_EMAIL, 'email.invalid'],
+      ]
+      ],
+      ['name' => [['length.abnormal'], [], ['email.invalid']]],
+     ],
+    ];
+  }
+  
+  /**
+   * @dataProvider syncMessagesCases
+   */
+  public function testSyncMessagesWithParams($defs, $want) {
+    $this->reflect($this->fail);
+    $this->fail->fromDefinitions($defs);
+    $got = $this->getProperty('errmsg');
+    $this->assertEquals($want, $got);
+  }
+
 }

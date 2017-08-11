@@ -35,8 +35,7 @@ class Failter {
 
 	private $errmsg;
 
-	private function message($key, $msg) {
-		if (empty($msg) || is_null($msg)) return;
+	private function message($key, $msg=[]) {
 		$this->errmsg[$key][] = $msg;
 	}
 
@@ -125,9 +124,11 @@ class Failter {
 				if (is_null($val))
 					$msg = isset($this->errmsg[$key]) ?
 					array_shift($this->errmsg[$key]) :['required'];
+          if (is_null($msg)) $msg = ['required'];
 				else if (false === $val) // error detected
 					$msg = isset($this->errmsg[$key]) ?
 					array_shift($this->errmsg[$key]) : ['invalid'];
+          if (is_null($msg)) $msg = ['invalid'];
         else // consume stored error message in sync with foreach of $newcarry
           if (isset($this->errmsg[$key])) array_shift($this->errmsg[$key]);
 				if ( ! is_null($msg)) $this->error[$key][] = $msg;

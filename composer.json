@@ -13,7 +13,8 @@
     ],
     "autoload": {
       "psr-4" :{
-        "Innermond\\Failter\\": "src/"
+        "Innermond\\Failter\\": "src/",
+        "Test\\": "tests/"
       }
     },
     "require": {}
