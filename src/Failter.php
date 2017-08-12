@@ -33,32 +33,25 @@ class Failter {
     return $this;
   }
 
-	private $errmsg;
-
-	private function message($key, $msg=[]) {
-		$this->errmsg[$key][] = $msg;
-	}
-
   /* hold definition array for filters that is consumed whan call run method
      after run works $def is empty
   */
 	private $def=[];
 
 	public function callback($key, callable $fn, ...$msg) {
-		$this->def[$key][] = ['filter' => \FILTER_CALLBACK, 'options' => $fn];
-		$this->message($key, $msg);
+		$this->def[$key][] = ['filter' => \FILTER_CALLBACK, 'options' => $fn] + ['message' => $msg];
+;
 		return $this;
 	}
 
 	public function regex($key, $rx, ...$msg) {
-		$this->def[$key][] = ['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => $rx]];
-		$this->message($key, $msg);
+		$this->def[$key][] = ['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => $rx]] + ['message' => $msg];
 		return $this;
 	}
 
 	public function filter($key, $filter, ...$msg) {
-		$this->def[$key][] = $filter;
-		$this->message($key, $msg);
+		if ( ! is_array($filter)) $filter = ['filter' => $filter];
+		$this->def[$key][] = $filter + ['message' => $msg];
 		return $this;
 	}
 
@@ -101,16 +94,20 @@ class Failter {
     if (! is_iterable($params)) return false;
 		$this->field = null;
 		$this->defs = [];
+		// prepare $this->defs from $this->def as such every item of it to be consumable by filter_var_array
 		while (count($this->def)) {
+			// definition collector
 			$el = [];
 			foreach($this->def as $k => &$v) {
+				// no more definitions
 				if (empty($v)) {
+					// shorten life of while cycle here
 					unset($this->def[$k]);
 					continue;
 				}
 				$el[$k] = array_shift($v);
 			}
-			$this->defs[] = $el;
+			if (! empty($el)) $this->defs[] = $el;
 		}
 		$this->error = [];
 		$filtered = array_reduce($this->defs, function($carry, $def) use (&$params) {
@@ -119,20 +116,22 @@ class Failter {
       $params = array_filter($newcarry) + $params;
       // cycle through filtered result
 			foreach($newcarry as $key => $val) {
-        $msg = null;
-        // missing keys are added as NULL - default behaviour of filter_var_array
+				// no error yet
+				$err = null;
+				// get error message from definition
+				$msg = null;
+				if (isset($def[$key]['message']) and !empty($def[$key]['message'])) 
+					$msg = $def[$key]['message'];
+        // start checking for errors; missing keys are added as NULL - default behaviour of filter_var_array
 				if (is_null($val)) {
-					$msg = isset($this->errmsg[$key]) ?
-					array_shift($this->errmsg[$key]) :['required'];
-          if (is_null($msg)) $msg = ['required'];
+					$err = $msg ?? 'required';
 				} else if (false === $val) {// error detected
-					$msg = isset($this->errmsg[$key]) ?
-					array_shift($this->errmsg[$key]) : ['invalid'];
-          if (is_null($msg)) $msg = ['invalid'];
-				} else {// consume stored error message in sync with foreach of $newcarry
-          if (isset($this->errmsg[$key])) array_shift($this->errmsg[$key]);
-				}
-				if ( ! is_null($msg)) $this->error[$key][] = $msg;
+					$err = $msg ?? 'invalid';
+				} 
+				// if an error occured add it
+				if ( ! is_null($err)) $this->error[$key][] = $err;
+				// 
+				unset($def[$key]['message']);
 			}
 			return array_merge_recursive($carry, $newcarry);
 		}, []);
