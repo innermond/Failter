@@ -113,7 +113,7 @@ class FailterTest extends TestCase {
         ['cobai' => ['a', '6']],
         ['cobai' => '6'],
         false,
-      ]
+			]
     ];
   }
 

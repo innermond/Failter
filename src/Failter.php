@@ -15,9 +15,9 @@ class Failter {
       if ( ! is_iterable($defs)) $defs = [$defs];
       foreach($defs as $def) {
         //  array not asociative
-        $sequential = is_iterable($def) ?
-          count(array_filter(array_keys($def), 'is_string')) == 0 :
-          false;
+				$sequential = false;
+				if (is_iterable($def))
+          $sequential = count(array_filter(array_keys($def), 'is_string')) == 0;
         $message = null;
         if ($sequential) {
           [$filter, $message] = $def;
@@ -121,16 +121,17 @@ class Failter {
 			foreach($newcarry as $key => $val) {
         $msg = null;
         // missing keys are added as NULL - default behaviour of filter_var_array
-				if (is_null($val))
+				if (is_null($val)) {
 					$msg = isset($this->errmsg[$key]) ?
 					array_shift($this->errmsg[$key]) :['required'];
           if (is_null($msg)) $msg = ['required'];
-				else if (false === $val) // error detected
+				} else if (false === $val) {// error detected
 					$msg = isset($this->errmsg[$key]) ?
 					array_shift($this->errmsg[$key]) : ['invalid'];
           if (is_null($msg)) $msg = ['invalid'];
-        else // consume stored error message in sync with foreach of $newcarry
+				} else {// consume stored error message in sync with foreach of $newcarry
           if (isset($this->errmsg[$key])) array_shift($this->errmsg[$key]);
+				}
 				if ( ! is_null($msg)) $this->error[$key][] = $msg;
 			}
 			return array_merge_recursive($carry, $newcarry);
