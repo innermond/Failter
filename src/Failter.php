@@ -55,6 +55,15 @@ class Failter {
 		return $this;
 	}
 
+	public function var($filter, $flags=null, ...$msg) {
+		$var = compact('filter', 'flags');
+		return $this->with($var, ...$msg);
+	}
+
+	public function needed(...$msg) {
+		return $this->with(\FILTER_UNSAFE_RAW, ...$msg);
+	}
+
 	private $field;
 
 	public function on(string $name) {
@@ -94,45 +103,54 @@ class Failter {
     if (! is_iterable($params)) return false;
 		$this->field = null;
 		$this->defs = [];
+		
 		// prepare $this->defs from $this->def as such every item of it to be consumable by filter_var_array
 		while (count($this->def)) {
 			// definition collector
 			$el = [];
-			foreach($this->def as $k => &$v) {
+			foreach($this->def as $k => &$v) { // &$v need to be reference for array_shift 
 				// no more definitions
 				if (empty($v)) {
 					// shorten life of while cycle here
 					unset($this->def[$k]);
 					continue;
 				}
-				$el[$k] = array_shift($v);
+				// collect only first
+				$el[$k] = array_shift($v); // instead &$v we can use $this->def[$k] which is a reference by itself;
 			}
 			if (! empty($el)) $this->defs[] = $el;
 		}
+
+		// errors reported here
 		$this->error = [];
+
 		$filtered = array_reduce($this->defs, function($carry, $def) use (&$params) {
-      $newcarry = \filter_var_array($params, $def);
+			
+			// finally we validate / filter
+			$newcarry = \filter_var_array($params, $def);
+
       // $params is a reference to keep valid modified values, replacing all invalids (null and false) with their original values to be validated by next iteration
       $params = array_filter($newcarry) + $params;
-      // cycle through filtered result
+			
+			// cycle through filtered result
 			foreach($newcarry as $key => $val) {
 				// no error yet
 				$err = null;
-				// get error message from definition
+				
+				// get error message from definition; we assume every filter definition has an message by default an empty array
 				$msg = null;
-				if (isset($def[$key]['message']) and !empty($def[$key]['message'])) 
-					$msg = $def[$key]['message'];
+				if (isset($def[$key]['message']) and !empty($def[$key]['message'])) $msg = $def[$key]['message'];
+
         // start checking for errors; missing keys are added as NULL - default behaviour of filter_var_array
 				if (is_null($val)) {
-					$err = $msg ?? 'required';
+					$err = $msg ?? ['required'];
 				} else if (false === $val) {// error detected
-					$err = $msg ?? 'invalid';
+					$err = $msg ?? ['invalid'];
 				} 
 				// if an error occured add it
 				if ( ! is_null($err)) $this->error[$key][] = $err;
-				// 
-				unset($def[$key]['message']);
 			}
+			// merge results; every field has an array with values that represents filtered values along the validation, think of multiple filters
 			return array_merge_recursive($carry, $newcarry);
 		}, []);
 
@@ -140,7 +158,10 @@ class Failter {
 		return $this->prepareFiltered($filtered);
 	}
 
-	private function prepareFiltered($filtered) {
+	/**
+	 * @return array whoose field's values has been colapsed to their last value;
+	 */
+	private function prepareFiltered($filtered) : array {
 		foreach($filtered as $k => &$v) {
 			if (count($v) > 1) $v = array_pop($v);
 		}

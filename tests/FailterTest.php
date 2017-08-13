@@ -63,7 +63,7 @@ class FailterTest extends TestCase {
 
 	public function paramsCasesDef() {
 	 return	[
-			/*'email is ok' => [
+			'email is ok' => [
 				['email' => \FILTER_VALIDATE_EMAIL],
 				['email' => 'gb@mob.ro'],
 				['email' => 'gb@mob.ro'],
@@ -120,9 +120,8 @@ class FailterTest extends TestCase {
 				['cobai' => ['6']],
 				['cobai' => '6'],
 				[],
-			],*/
+			],
 			[
-				// 
 				['cobai_1' => [
 						// from 1 to 3
 						[ 'filter' => \FILTER_VALIDATE_INT, 
@@ -135,11 +134,12 @@ class FailterTest extends TestCase {
 							return $el === '555' ? false : $el;
 						},
 						['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => '/^\d{2}$/i'], 'message' => 'cobai.offending'],
-					]
+					],
+					'cobai_2' => \FILTER_VALIDATE_INT,
 				],
 				['cobai_1' => '555'],
 				false,
-				['cobai_1' => ['cobai.malformed', 'invalid', 'cobai.offending']],
+				['cobai_1' => ['cobai.malformed', 'invalid', 'cobai.offending'], 'cobai_2' => ['required']],
 			]
 		];
 	}
@@ -147,10 +147,69 @@ class FailterTest extends TestCase {
   /**
    * @dataProvider paramsCasesDef
    */
-  public function testRunParams($def, $params, $want, $msg) {
-    $filtered = $this->fail->fromDefinitions($def)->run($params);
+  public function ___testRunParams($def, $params, $want, $msg) {
+  	$filtered = $this->fail->fromDefinitions($def)->run($params);
     $this->assertEquals($filtered, $want);
 		$this->assertEquals($msg, $this->fail->getError());
   }
 
+	public function fluentDef() {
+		// setUp hasn't been run yet
+		$fail = new Me\Failter;
+		$superstrip = [\FILTER_SANITIZE_STRING, \FILTER_FLAG_STRIP_BACKTICK | \FILTER_FLAG_ENCODE_AMP];
+    $between = function($min, $max, $greedy=true) {                                                                                                                                                                          
+      return function($val) use ($min, $max, $greedy) {
+				$len = is_numeric($val) ? $val : is_array($val) ? count($val) : strlen($val);
+				if($greedy)
+					$out = ($min <= $len and $max >= $len) ? $val : false;
+        else
+          $out = ($min < $len and $max > $len) ? $val : false;
+			return $out;
+			};
+		};
+		$upper = function($el) {
+			return strtoupper($el);
+		};
+		
+		yield [
+			$fail
+				->on('name')
+				->with('/^[a-z\ ]{2,3}$/i', 'shape.bad')
+				->var(...$superstrip)
+				->with($between(2, 3), 'len.between', [2, 3])
+				->with($upper)
+
+				->on('age')
+				->needed('longevity', 100)
+
+				->on('choice')
+				->var(\FILTER_UNSAFE_RAW , \FILTER_REQUIRE_ARRAY, 'crowd')
+				->with($between(2,3), 'len.bad')
+				,
+			['name' => 'ab12', 'choice' => '1'],
+			false,
+			['name' => [
+					['shape.bad'],
+					['len.between', [2,3]],
+				],
+				'age' => [
+					['longevity', 100],
+				],
+				'choice' => [
+					['crowd'],
+					['len.bad'],
+				],
+			],
+		];		
+	}
+
+	/**
+	 * @dataProvider fluentDef
+	 */
+	public function testRunWithFluentDefinitions($fail, $params, $want, $msg) {
+  	$filtered = $fail->run($params);
+		var_dump($fail->getError());
+    $this->assertEquals($filtered, $want);
+		$this->assertEquals($msg, $fail->getError());
+	}
 }
