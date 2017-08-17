@@ -91,3 +91,10 @@ function is_filter($filter) {
 }
 
 var_dump(is_filter(['filter' => FILTER_VALIDATE_EMAIL]));
+
+
+function array_vertical($arr, $size) {
+  $k = array_chunk($arr, $size);
+  $m = array_map(null, ...$k);
+  return $m; 
+}

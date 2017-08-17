@@ -41,8 +41,7 @@ class Def {
 		$out=[];
 		foreach($this->rounds as $i => $args) {
 			$out[] = $this->runRound($i, $data);
-		}
-
+    }
 		return array_merge_recursive(...$out);
 	}
 
@@ -60,12 +59,20 @@ class Def {
 					unset($source[$k]);
 					continue;
 				}
+        $isfilter = $this->isFilter($v);
 				if (
-					$this->isFilter($v) 
+          $isfilter
 					or 
 					$v instanceOf Def
 				) 
-				{
+        {
+          /*if ($isfilter) {
+            $flags = $v['flags'] ?? false;
+            if ( ! $flags) break;
+            $need = $this->needChunking($flags);
+            if ( ! $need) break;
+
+        }*/
 					$el[$k] = $v;
 					$v = [];
 				} else if (is_array($v) and ! $this->isFilter($v)) {
@@ -103,6 +110,12 @@ class Def {
 		}
 		return $out;
 	}
+
+  private function needChunking($flag) {
+    $require = FILTER_REQUIRE_ARRAY == FILTER_REQUIRE_ARRAY & $flag;
+    $force = FILTER_FORCE_ARRAY == FILTER_FORCE_ARRAY & $flag;
+    return $require or $force;
+  }
 	
 	static function filter_ids() {
 		static $out;
@@ -139,7 +152,7 @@ class Def {
 
 
 $data = [
-    'component'     => [1, 20, 10, 'a', 0],
+    'component'     => ['_0'=>1, '_1'=>20, '_3'=>10, '_4'=>'a', '_5'=>0],
 		'user' 					=> [
 			'span' => 1, 
 		 	'ttl' => 'aaa',
@@ -149,76 +162,117 @@ $data = [
     'testarray'     => ['2', 3, 'a'],
 		'step' => ['one' => '0.5', 'two' => ['three' => 'b'], 'four' => 'c'],
 	];
+$paranoy=[
+      [
+        'filter'    => FILTER_VALIDATE_INT,
+        //'flags' => FILTER_REQUIRE_ARRAY,
+        'options'   => ['min_range' => 1, 'max_range' => 10],
+      ],
+      ['filter' => FILTER_CALLBACK, 
+       'options' => function($el){
+          return (is_numeric($el) and $el%2) ? $el : false; 
+        },
+       'message' => 'uneven',
+      ],
+    ];
 
 $args = [
 	'step' => new Def(
-		['one' => [['filter' => FILTER_VALIDATE_INT, 'message' => 'integering'], ['filter' => FILTER_VALIDATE_FLOAT, 'message' => 'floating'],],
-		'two' => new Def(
-			['three' => ['filter' => FILTER_UNSAFE_RAW, 'message' => 'twerror']]
-		), 
-		'four' => [['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], FILTER_UNSAFE_RAW]]
-		),
-    'component'  => ['filter'    => FILTER_VALIDATE_INT,
-							'flags'     => FILTER_FORCE_ARRAY, 
-							'options'   => ['min_range' => 0, 'max_range' => 10]
-						 ],
-		'user' => new Def(
-			[
-				//'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
-				'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
-				'money' => new Def(
-					['borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY], 'from' => FILTER_VALIDATE_EMAIL]
-				),
-			]
-		),
-    'doesnotexist' => FILTER_VALIDATE_INT,
-    'testscalar'   => [
-											'filter' => FILTER_VALIDATE_INT,
-											'flags'  => FILTER_REQUIRE_SCALAR,
-										 ],
-    'testarray'    => [
-											'filter' => FILTER_VALIDATE_INT,
-											//'flags'  => FILTER_FORCE_ARRAY,
-											'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
-										 ]
+    ['one' => 
+      [
+        ['filter' => FILTER_VALIDATE_INT, 'message' => 'integering'], 
+        ['filter' => FILTER_VALIDATE_FLOAT, 'message' => 'floating'],
+      ],
 
-		 ];
+		'two' => new Def(
+      ['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'message' => 'twerror']]
+     ),
+
+      'four' => [
+        ['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], 
+        FILTER_UNSAFE_RAW,
+        [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
+        ['filter' => FILTER_VALIDATE_INT, 'message' => 'needmore'],
+      ]
+    ]
+    ),
+    'component'  => new Def(['_0'=>$paranoy, '_1'=>$paranoy, '_2'=>$paranoy, '_3'=>$paranoy, '_4'=>$paranoy,]),
+
+  'user' => new Def(
+    [
+      'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
+      'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
+      'money' => new Def(
+        [
+          'borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY],
+          'from' => FILTER_VALIDATE_EMAIL
+        ]
+      ),
+    ]
+  ),
+
+  'doesnotexist' => FILTER_VALIDATE_INT,
+
+  'testscalar'   => [
+    [
+    'filter' => FILTER_VALIDATE_INT,
+    'flags'  => FILTER_REQUIRE_ARRAY,
+    'message' => 'only int',
+    ],
+    ['filter' => FILTER_CALLBACK, 
+       'options' => function($el){
+          return (is_numeric($el) and $el%2) ? $el : false; 
+        },
+       'message' => 'uneven',
+    ]
+  ],
+
+  'testarray'    => [
+    'filter' => FILTER_VALIDATE_INT,
+    'flags'  => FILTER_FORCE_ARRAY,
+    'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
+   ]
+];
+/*$args = [
+'user' => new Def(
+  [
+    'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
+    'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY, 'message' => 'ttlerr-array'],
+    'money' => new Def(
+      ['borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY, 'message' => 'borrowerr'], 'from' => FILTER_VALIDATE_EMAIL]
+    ),
+    'missing' => FILTER_UNSAFE_RAW,
+  ]
+),
+];*/
 $def = new Def($args);
 $messages = $def->getMessages();
 $filtered = $def->run($data);
-function array_substitute(array $original, array $substitute) 
-{ 
+function array_substitute(array $original, $substitute) { 
+  foreach ($original as $key => $value) { 
+    if (is_array($value)) { 
+        $original[$key] = array_substitute($original[$key], $substitute[$key]); 
+    } 
 
-        // Loop through array key/value pairs 
-        foreach ($original as $key => $value) 
-        { 
-            // Value is an array 
-            if (is_array($value)) 
-            { 
-                // Traverse the array; replace or add result to original array 
-                $original[$key] = array_substitute($original[$key], $substitute[$key]); 
-            } 
-
-            // Value is not an array 
-            else 
-            { 
-                // Replace or add current value to original array 
-							if ($value === null or $value === false) {
-								$msg = ($value === null) ? 'required' : 'invalid';
-								$msg = $substitute[$key] ?? $substitute ?? $msg;
-								$original[$key] = $msg;
-							}
-            } 
-        } 
+    else { 
+      $original[$key] = null;
+      if ($value === null or $value === false) {
+        $msg = ($value === null) ? 'required' : 'invalid';
+        if (is_array($substitute)) {
+          $msg = $substitute[$key] ?? $msg;
+        } else if (is_string($substitute)) {
+          $msg = $substitute;
+        }
+        $original[$key] = $msg;
+      }
+    } 
+  } 
     // Return the joined array 
     return $original; 
 } 
-var_export($filtered['user']);
-var_export($messages['user']);
-exit;
+
+var_export($filtered);
+//exit;
+//var_export($messages);
 $errors = array_substitute($filtered, $messages);
-//var_export($errors);
-array_walk_recursive($errors, function(&$el, $key) {
-	echo $key, PHP_EOL;
-	if ($el === false or is_null($el)) $el = 'error';
-});
+var_export($errors);
