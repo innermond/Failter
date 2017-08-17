@@ -1,2 +1,4 @@
 /vendor
 /bin/phpunit
+**/*.swp
+tags
