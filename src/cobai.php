@@ -55,7 +55,6 @@ class Def {
 			$el = [];
 			foreach($source as $k => &$v) { // &$v need to be reference for array_shift 
 				// no more definitions
-		//var_dump($v);exit;
 				if (empty($v)) {
 					// shorten life of while cycle here
 					unset($source[$k]);
@@ -71,7 +70,7 @@ class Def {
 					$v = [];
 				} else if (is_array($v) and ! $this->isFilter($v)) {
 					// collect only first
-					$el[$k] = array_shift($v); // instead &$v we can use $this->def[$k] which is a reference by itself;
+					if ( ! empty($v)) $el[$k] = array_shift($v); // instead &$v we can use $this->def[$k] which is a reference by itself;
 				}
 			}
 			if (! empty($el)) $cut[] = $el;
@@ -87,8 +86,10 @@ class Def {
 			$out[$k] = null;
 			if ($v instanceOf Def) {
 				$out[$k] = empty($v->messages) ? $v->makeMessages() : $v->messages;
-			} else if (is_array($v)) {
-				if (array_key_exists('message', $v))
+			} else if ($this->isFilter($v)) {
+						$out[$k] = $v['message'] ?? null;
+			} else if (is_array($v)) {// array of filters
+				if (array_key_exists('message', $v)) // boss message
 					$out[$k] = $v['message'];
 				else {
 					foreach($v as $vv) {
@@ -140,7 +141,7 @@ class Def {
 $data = [
     'component'     => [1, 20, 10, 'a', 0],
 		'user' 					=> [
-			'span' => true, 
+			'span' => 1, 
 		 	'ttl' => 'aaa',
 			'money' => ['borrowed' => 250, 'from' => 'gbmob.ro'],
 		],
@@ -151,7 +152,7 @@ $data = [
 
 $args = [
 	'step' => new Def(
-		['one' => [FILTER_VALIDATE_INT, FILTER_VALIDATE_FLOAT, 'message' => 'eroare!'],
+		['one' => [['filter' => FILTER_VALIDATE_INT, 'message' => 'integering'], ['filter' => FILTER_VALIDATE_FLOAT, 'message' => 'floating'],],
 		'two' => new Def(
 			['three' => ['filter' => FILTER_UNSAFE_RAW, 'message' => 'twerror']]
 		), 
@@ -163,7 +164,7 @@ $args = [
 						 ],
 		'user' => new Def(
 			[
-				'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'flags' => FILTER_NULL_ON_FAILURE, 'message' => 'spanerr'],
+				//'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
 				'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
 				'money' => new Def(
 					['borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY], 'from' => FILTER_VALIDATE_EMAIL]
@@ -185,9 +186,38 @@ $args = [
 $def = new Def($args);
 $messages = $def->getMessages();
 $filtered = $def->run($data);
-$errors = array_merge_recursive($filtered, $messages);
-var_dump($errors);
+function array_substitute(array $original, array $substitute) 
+{ 
+
+        // Loop through array key/value pairs 
+        foreach ($original as $key => $value) 
+        { 
+            // Value is an array 
+            if (is_array($value)) 
+            { 
+                // Traverse the array; replace or add result to original array 
+                $original[$key] = array_substitute($original[$key], $substitute[$key]); 
+            } 
+
+            // Value is not an array 
+            else 
+            { 
+                // Replace or add current value to original array 
+							if ($value === null or $value === false) {
+								$msg = ($value === null) ? 'required' : 'invalid';
+								$msg = $substitute[$key] ?? $substitute ?? $msg;
+								$original[$key] = $msg;
+							}
+            } 
+        } 
+    // Return the joined array 
+    return $original; 
+} 
+var_export($filtered['user']);
+var_export($messages['user']);
 exit;
+$errors = array_substitute($filtered, $messages);
+//var_export($errors);
 array_walk_recursive($errors, function(&$el, $key) {
 	echo $key, PHP_EOL;
 	if ($el === false or is_null($el)) $el = 'error';
