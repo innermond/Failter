@@ -52,6 +52,7 @@ class Def {
 	}
 
   private function unjoin($arr, $size) {
+    if ( ! is_array($arr)) $arr = [$arr];
     $k = array_chunk($arr, $size);
     $m = array_map(null, ...$k);
     return $m; 
@@ -208,8 +209,8 @@ $data = [
 		 	'ttl' => 'aaa',
 			'money' => ['borrowed' => 250, 'from' => 'gbmob.ro'],
 		],
-    'testscalar'    => ['2', '23', '12'],
-    'testarray'     => ['2', 3, 'a'],
+    'testscalar'    => [2, 'a', '12'],
+    'testarray'     => ['2', 'a'],
 		'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b'], 'four' => 'c'],
 	];
 $paranoy=[
@@ -222,7 +223,7 @@ $paranoy=[
        'options' => function($el){
           return (is_numeric($el) and $el%2) ? $el : false; 
         },
-       'message' => 'uneven',
+       'message' => 'iparanoya',
       ],
     ];
 
@@ -235,7 +236,7 @@ $args = [
         ],
 
       'two' => new Def(
-        ['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'message' => 'twerror']]
+        ['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'twerror']]
        ),
 
         'four' => [
@@ -278,11 +279,11 @@ $args = [
     ]
   ],
 
-  /*'testarray'    => [
+  'testarray'    => [
     'filter' => FILTER_VALIDATE_INT,
     'flags'  => FILTER_FORCE_ARRAY,
     'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
-  ]*/
+  ]
 ];
 
 $def = new Def($args);
@@ -291,7 +292,15 @@ $checked = $def->check($data);
 function array_substitute(array $original, $substitute) { 
   foreach ($original as $key => $value) { 
     if (is_array($value)) { 
-        $original[$key] = array_substitute($original[$key], $substitute[$key]); 
+      if (is_numeric($key))
+      { 
+        $isIndexed = count(array_filter(array_keys($substitute), 'is_string')) == 0;
+        if ($isIndexed) {
+          $original[$key] = array_substitute($original[$key], $substitute); 
+          continue;
+        }
+      }
+      $original[$key] = array_substitute($original[$key], $substitute[$key]); 
     } 
 
     else { 
@@ -307,11 +316,16 @@ function array_substitute(array $original, $substitute) {
       }
     } 
   } 
-    // Return the joined array 
-    return $original; 
+  // Return the joined array 
+  return $original; 
 } 
 
-var_export($checked);
-var_export($messages);
-//$errors = array_substitute($filtered, $messages);
-//var_export($errors);
+$c = var_export($checked, true);
+$m = var_export($messages, true);
+;
+$errors = array_substitute($checked, $messages);
+$e = var_export($errors, true);
+file_put_contents('./chunked', $c);
+file_put_contents('./messages', $m);
+file_put_contents('./erros', $e);
+
