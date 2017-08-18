@@ -2,33 +2,31 @@
 
 class Def {
 	
-	private $def, $args;
+	private $unconsumed, $def, $args;
 	
 	public function __construct($def) {
+    $this->unconsumed = $def;
+
 		$this->def = $def;
 		$this->messages = $this->makeMessages();
 		$this->rounds = $this->makeRounds();
-	}
+  }
 
 	public function getMessages() {
 		return $this->messages;	
 	}
 
-	public function def() {
-		return $this->args;
-	}
-	
 	public function undef(string $k) {
 		$this->args[$k] = null;
 	}
 	
-	public function runRound($i, $data) {
+	private  function runRound($i, $data) {
 		$this->args = $this->rounds[$i];
 		$partial=[];
 		foreach($this->args as $k => $v) {
 			if ($v instanceOf Def) {
 				$partial[$k] = $v->run($data[$k] ?? []);
-				// remove this definition
+				// remove this definition because args in filter_var_array do not know objects
 				$this->undef($k);
 			}
 		}
@@ -37,13 +35,65 @@ class Def {
 		return ($partial + $curr);
 	}
 
-	public function run($data) {
+  private $data;
+
+  public function getData() {
+    return $this->data;
+  }
+
+	private function run($data) {
+    $this->data = $data;
+
 		$out=[];
 		foreach($this->rounds as $i => $args) {
 			$out[] = $this->runRound($i, $data);
     }
 		return array_merge_recursive(...$out);
 	}
+
+  private function unjoin($arr, $size) {
+    $k = array_chunk($arr, $size);
+    $m = array_map(null, ...$k);
+    return $m; 
+  }
+
+  private function chunk($filtered=[]) {
+    foreach($this->unconsumed as $k => $elem) {
+      $elems = $elem;
+      if ( 
+        $this->isFilter($elems) or 
+        ! is_array($elem)
+      ) 
+      $elems = [$elem];
+
+      if ( ! isset($filtered)) continue;
+      $elf = &$filtered[$k];
+      if ( ! isset($this->data[$k])) continue;
+      $size = count($this->data[$k]);
+      foreach($elems as $el) {
+        // deal with a filter
+        $filterInNeed = 
+          $this->isFilter($el) && 
+          isset($el['flags']) && 
+          $this->needChunking($el['flags']);
+        if ($filterInNeed) {
+          // chunking
+          $elf = $this->unjoin($elf, $size);
+        }
+        // deal with a def
+        else if ($el instanceOf self) {
+          $elf = $el->chunk($elf);
+        }
+      }
+    }
+    return $filtered;
+  }
+
+  public function check($data) {
+    $filtered = $this->run($data);
+    $chunked = $this->chunk($filtered);
+    return $chunked;
+  }
 
 	private $rounds=[];
 
@@ -111,10 +161,10 @@ class Def {
 		return $out;
 	}
 
-  private function needChunking($flag) {
-    $require = FILTER_REQUIRE_ARRAY == FILTER_REQUIRE_ARRAY & $flag;
-    $force = FILTER_FORCE_ARRAY == FILTER_FORCE_ARRAY & $flag;
-    return $require or $force;
+  public function needChunking($flag) {
+    $require = FILTER_REQUIRE_ARRAY == (FILTER_REQUIRE_ARRAY & $flag);
+    $force = FILTER_FORCE_ARRAY == (FILTER_FORCE_ARRAY & $flag);
+    return ($require || $force);
   }
 	
 	static function filter_ids() {
@@ -152,7 +202,7 @@ class Def {
 
 
 $data = [
-    'component'     => ['_0'=>1, '_1'=>20, '_3'=>10, '_4'=>'a', '_5'=>0],
+    'component'     => [1, 20, 10, 'a', 0],
 		'user' 					=> [
 			'span' => 1, 
 		 	'ttl' => 'aaa',
@@ -160,12 +210,12 @@ $data = [
 		],
     'testscalar'    => ['2', '23', '12'],
     'testarray'     => ['2', 3, 'a'],
-		'step' => ['one' => '0.5', 'two' => ['three' => 'b'], 'four' => 'c'],
+		'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b'], 'four' => 'c'],
 	];
 $paranoy=[
       [
         'filter'    => FILTER_VALIDATE_INT,
-        //'flags' => FILTER_REQUIRE_ARRAY,
+        'flags' => FILTER_REQUIRE_ARRAY,
         'options'   => ['min_range' => 1, 'max_range' => 10],
       ],
       ['filter' => FILTER_CALLBACK, 
@@ -177,39 +227,40 @@ $paranoy=[
     ];
 
 $args = [
-	'step' => new Def(
-    ['one' => 
-      [
-        ['filter' => FILTER_VALIDATE_INT, 'message' => 'integering'], 
-        ['filter' => FILTER_VALIDATE_FLOAT, 'message' => 'floating'],
-      ],
-
-		'two' => new Def(
-      ['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'message' => 'twerror']]
-     ),
-
-      'four' => [
-        ['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], 
-        FILTER_UNSAFE_RAW,
-        [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
-        ['filter' => FILTER_VALIDATE_INT, 'message' => 'needmore'],
-      ]
-    ]
-    ),
-    'component'  => new Def(['_0'=>$paranoy, '_1'=>$paranoy, '_2'=>$paranoy, '_3'=>$paranoy, '_4'=>$paranoy,]),
-
-  'user' => new Def(
-    [
-      'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
-      'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
-      'money' => new Def(
+    'step' => new Def(
+      ['one' => 
         [
-          'borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY],
-          'from' => FILTER_VALIDATE_EMAIL
+          ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'integering'], 
+          ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'floating'],
+        ],
+
+      'two' => new Def(
+        ['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'message' => 'twerror']]
+       ),
+
+        'four' => [
+          ['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], 
+          FILTER_UNSAFE_RAW,
+          [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
+          ['filter' => FILTER_VALIDATE_INT, 'message' => 'needmore'],
         ]
+      ]
       ),
-    ]
-  ),
+
+      'component'  => $paranoy,
+
+    'user' => new Def(
+      [
+        'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
+        'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
+        'money' => new Def(
+          [
+            'borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY],
+            'from' => FILTER_VALIDATE_EMAIL
+          ]
+        ),
+      ]
+    ),
 
   'doesnotexist' => FILTER_VALIDATE_INT,
 
@@ -227,27 +278,16 @@ $args = [
     ]
   ],
 
-  'testarray'    => [
+  /*'testarray'    => [
     'filter' => FILTER_VALIDATE_INT,
     'flags'  => FILTER_FORCE_ARRAY,
     'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
-   ]
+  ]*/
 ];
-/*$args = [
-'user' => new Def(
-  [
-    'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
-    'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY, 'message' => 'ttlerr-array'],
-    'money' => new Def(
-      ['borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY, 'message' => 'borrowerr'], 'from' => FILTER_VALIDATE_EMAIL]
-    ),
-    'missing' => FILTER_UNSAFE_RAW,
-  ]
-),
-];*/
+
 $def = new Def($args);
 $messages = $def->getMessages();
-$filtered = $def->run($data);
+$checked = $def->check($data);
 function array_substitute(array $original, $substitute) { 
   foreach ($original as $key => $value) { 
     if (is_array($value)) { 
@@ -271,8 +311,7 @@ function array_substitute(array $original, $substitute) {
     return $original; 
 } 
 
-var_export($filtered);
-//exit;
-//var_export($messages);
-$errors = array_substitute($filtered, $messages);
-var_export($errors);
+var_export($checked);
+var_export($messages);
+//$errors = array_substitute($filtered, $messages);
+//var_export($errors);
