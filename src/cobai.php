@@ -117,13 +117,6 @@ class Def {
 					$v instanceOf Def
 				) 
         {
-          /*if ($isfilter) {
-            $flags = $v['flags'] ?? false;
-            if ( ! $flags) break;
-            $need = $this->needChunking($flags);
-            if ( ! $need) break;
-
-        }*/
 					$el[$k] = $v;
 					$v = [];
 				} else if (is_array($v) and ! $this->isFilter($v)) {
@@ -211,7 +204,7 @@ $data = [
 		],
     'testscalar'    => [2, 'a', '12'],
     'testarray'     => ['2', 'a'],
-		'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b'], 'four' => 'c'],
+		'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b', 'five' => ['six' => [1, 2.5, 'one'] ]], 'four' => 'c'],
 	];
 $paranoy=[
       [
@@ -236,7 +229,17 @@ $args = [
         ],
 
       'two' => new Def(
-        ['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'twerror']]
+				['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'twerror'],
+				'five' => new Def(['six' => 
+				[
+					['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY],
+					['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY],
+					['filter' => FILTER_CALLBACK, 'options' => function($el) {
+						return substr($el, 0, 0) == 1 ? false : $el;
+					}],
+				]
+			])
+		]
        ),
 
         'four' => [
@@ -320,12 +323,28 @@ function array_substitute(array $original, $substitute) {
   return $original; 
 } 
 
+$checked = $def->check($data);
 $c = var_export($checked, true);
 $m = var_export($messages, true);
-;
 $errors = array_substitute($checked, $messages);
 $e = var_export($errors, true);
 file_put_contents('./chunked', $c);
 file_put_contents('./messages', $m);
 file_put_contents('./erros', $e);
-
+  function array_filter_recursive(&$input, $callback = null) { 
+    foreach ($input as $key => &$value) { 
+			if (is_array($value)) { 
+			//if (empty($value)) var_dump($key, $value);
+				/*if (empty($value)) {
+					unset($input[$key]);
+					continue;
+				}*/
+        $value = array_filter_recursive($value, $callback); 
+      } 
+    } 
+    
+    return array_filter($input, $callback); 
+  } 
+$msg = array_filter_recursive($errors, function($el) { return ! is_null($el); });
+$msg = array_filter_recursive($errors, function($el) { return ! ( is_array($el) && empty($el));});
+var_export($msg);
