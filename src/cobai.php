@@ -62,7 +62,7 @@ class Def {
     foreach($this->unconsumed as $k => $elem) {
       $elems = $elem;
       if ( 
-        $this->isFilter($elems) or 
+        self::isFilter($elems) or 
         ! is_array($elem)
       ) 
       $elems = [$elem];
@@ -74,7 +74,7 @@ class Def {
       foreach($elems as $el) {
         // deal with a filter
         $filterInNeed = 
-          $this->isFilter($el) && 
+          self::isFilter($el) && 
           isset($el['flags']) && 
           $this->needChunking($el['flags']);
         if ($filterInNeed) {
@@ -90,9 +90,21 @@ class Def {
     return $filtered;
   }
 
+	private $errors = [];
+
+	public function getErrors() {
+		return $this->errors;
+	}
+
   public function check($data) {
     $filtered = $this->run($data);
     $chunked = $this->chunk($filtered);
+		$errors = self::array_substitute($chunked, $this->messages);
+		$msg = self::array_filter_recursive($errors, function($el) { return ! is_null($el); });
+		$msg = self::array_filter_recursive($errors, function($el) { return ! ( is_array($el) && empty($el));});
+		$this->errors = $msg;
+		$fail = ! empty($msg);
+		if ($fail) return false;
     return $chunked;
   }
 
@@ -110,7 +122,7 @@ class Def {
 					unset($source[$k]);
 					continue;
 				}
-        $isfilter = $this->isFilter($v);
+        $isfilter = self::isFilter($v);
 				if (
           $isfilter
 					or 
@@ -119,7 +131,7 @@ class Def {
         {
 					$el[$k] = $v;
 					$v = [];
-				} else if (is_array($v) and ! $this->isFilter($v)) {
+				} else if (is_array($v) and ! self::isFilter($v)) {
 					// collect only first
 					if ( ! empty($v)) $el[$k] = array_shift($v); // instead &$v we can use $this->def[$k] which is a reference by itself;
 				}
@@ -137,7 +149,7 @@ class Def {
 			$out[$k] = null;
 			if ($v instanceOf Def) {
 				$out[$k] = empty($v->messages) ? $v->makeMessages() : $v->messages;
-			} else if ($this->isFilter($v)) {
+			} else if (self::isFilter($v)) {
 						$out[$k] = $v['message'] ?? null;
 			} else if (is_array($v)) {// array of filters
 				if (array_key_exists('message', $v)) // boss message
@@ -161,7 +173,7 @@ class Def {
     return ($require || $force);
   }
 	
-	static function filter_ids() {
+	public static function filter_ids() {
 		static $out;
 		if (is_array($out)) return $out;
 		$filters = filter_list(); 
@@ -171,7 +183,7 @@ class Def {
 		return $out;
 	}
 
-	public function isFilter($filter) {
+	public static function isFilter($filter) {
 		if (
 			is_int($filter) 
 			and 
@@ -191,6 +203,49 @@ class Def {
 		return false;
 	}
 
+	public static function array_substitute(array $original, $substitute) {
+		foreach ($original as $key => $value) { 
+			if (is_array($value)) { 
+				if (is_numeric($key))
+				{ 
+					$isIndexed = count(array_filter(array_keys($substitute), 'is_string')) == 0;
+					if ($isIndexed) {
+						$original[$key] = self::array_substitute($original[$key], $substitute); 
+						continue;
+					}
+				}
+				$original[$key] = self::array_substitute($original[$key], $substitute[$key]); 
+			}
+
+			else { 
+				$original[$key] = null;
+				if ($value === null or $value === false) {
+					$msg = ($value === null) ? 'required' : 'invalid';
+					if (is_array($substitute)) {
+						$msg = $substitute[$key] ?? $msg;
+					} else if (is_string($substitute)) {
+						$msg = $substitute;
+					}
+					else if (is_object($substitute)) {
+						$msg = $substitute;
+					}	
+					$original[$key] = $msg;
+				}
+			} 
+		} 
+		// Return the joined array 
+		return $original; 
+	}
+
+	public static function array_filter_recursive(&$input, $callback = null) { 
+    foreach ($input as $key => &$value) { 
+			if (is_array($value)) { 
+        $value = self::array_filter_recursive($value, $callback); 
+      } 
+    } 
+    
+    return array_filter($input, $callback); 
+  }
 
 }
 
@@ -203,14 +258,15 @@ $data = [
 			'money' => ['borrowed' => 250, 'from' => 'gbmob.ro'],
 		],
     'testscalar'    => [2, 'a', '12'],
-    'testarray'     => ['2', 'a'],
+    'testarray'     => ['2', 2],
 		'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b', 'five' => ['six' => [1, 2.5, 'one'] ]], 'four' => 'c'],
 	];
-$paranoy=[
+	$paranoy=[
       [
         'filter'    => FILTER_VALIDATE_INT,
         'flags' => FILTER_REQUIRE_ARRAY,
         'options'   => ['min_range' => 1, 'max_range' => 10],
+				'message' => (object) ['paranoy limited',  [1, 10]],
       ],
       ['filter' => FILTER_CALLBACK, 
        'options' => function($el){
@@ -289,62 +345,18 @@ $args = [
   ]
 ];
 
+/*$args = 
+	[
+		'testarray'    => 
+		[
+		'filter' => FILTER_VALIDATE_INT,
+		'flags'  => FILTER_FORCE_ARRAY,
+		'flags'  => FILTER_REQUIRE_ARRAY,
+		'message' => (object) ['only int, stupid!', 100],
+		]
+	]
+	;*/
+$data = ['testarray' => [1, 'a2']];
 $def = new Def($args);
-$messages = $def->getMessages();
 $checked = $def->check($data);
-function array_substitute(array $original, $substitute) { 
-  foreach ($original as $key => $value) { 
-    if (is_array($value)) { 
-      if (is_numeric($key))
-      { 
-        $isIndexed = count(array_filter(array_keys($substitute), 'is_string')) == 0;
-        if ($isIndexed) {
-          $original[$key] = array_substitute($original[$key], $substitute); 
-          continue;
-        }
-      }
-      $original[$key] = array_substitute($original[$key], $substitute[$key]); 
-    } 
-
-    else { 
-      $original[$key] = null;
-      if ($value === null or $value === false) {
-        $msg = ($value === null) ? 'required' : 'invalid';
-        if (is_array($substitute)) {
-          $msg = $substitute[$key] ?? $msg;
-        } else if (is_string($substitute)) {
-          $msg = $substitute;
-        }
-        $original[$key] = $msg;
-      }
-    } 
-  } 
-  // Return the joined array 
-  return $original; 
-} 
-
-$checked = $def->check($data);
-$c = var_export($checked, true);
-$m = var_export($messages, true);
-$errors = array_substitute($checked, $messages);
-$e = var_export($errors, true);
-file_put_contents('./chunked', $c);
-file_put_contents('./messages', $m);
-file_put_contents('./erros', $e);
-  function array_filter_recursive(&$input, $callback = null) { 
-    foreach ($input as $key => &$value) { 
-			if (is_array($value)) { 
-			//if (empty($value)) var_dump($key, $value);
-				/*if (empty($value)) {
-					unset($input[$key]);
-					continue;
-				}*/
-        $value = array_filter_recursive($value, $callback); 
-      } 
-    } 
-    
-    return array_filter($input, $callback); 
-  } 
-$msg = array_filter_recursive($errors, function($el) { return ! is_null($el); });
-$msg = array_filter_recursive($errors, function($el) { return ! ( is_array($el) && empty($el));});
-var_export($msg);
+var_export($def->getErrors());
