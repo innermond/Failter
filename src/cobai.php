@@ -1,10 +1,17 @@
 <?php
 
+/**
+ * Class: Def
+ *
+ */
 class Def {
 	
-	private $unconsumed, $def, $args;
+  private 
+    $unconsumed, // save here definition
+    $def, // definition that will be consumed by rounds
+    $args; // slice of definition, also consumable
 	
-	public function __construct($def) {
+  public function __construct($def) {
     $def = $this->prepareDef($def);
 
     $this->unconsumed = $def;
@@ -13,7 +20,15 @@ class Def {
 		$this->rounds = $this->makeRounds();
   }
 
-  private function prepareDef($def) {
+  /**
+   * prepareDef
+   * transform every branch of associative array $def into a class Def
+   * used internally to provide a proper argument for methods [run, runRound]
+   *
+   * @param array $def
+   * @return array
+   */
+  private function prepareDef(array $def) : array {
     foreach($def as $k => &$v) {
       if (self::isFilter($v)) continue;
       if ( ! self::array_is_num($v)) {
@@ -28,7 +43,12 @@ class Def {
 		return $this->messages;	
 	}
 
-	public function undef(string $k) {
+  /**
+   * undef
+   *
+   * @param string $k
+   */
+	private function undef(string $k) {
 		$this->args[$k] = null;
 	}
 	
@@ -70,7 +90,14 @@ class Def {
     return $m; 
   }
 
-  private function chunk($filtered=[]) {
+  /**
+   * chunk
+   * Prepare an array to have for every associative key present on definitions
+   * an array representing results of all operations done with 
+   *
+   * @param array $filtered
+   */
+  private function chunk(array $filtered=[]) {
     foreach($this->unconsumed as $k => $elem) {
       $elems = $elem;
       if ( 
@@ -108,12 +135,23 @@ class Def {
 		return $this->errors;
 	}
 
-  public function check($data) {
+  /**
+   * check
+   * Run main methods on $data in order to validate accordingly with definition rules
+   *
+   * @param array $data
+   */
+  public function check(array $data) {
     $filtered = $this->run($data);
     $chunked = $this->chunk($filtered);
+    // build errors
 		$errors = self::array_substitute($chunked, $this->messages);
+    // remove null values, just keep errors as null values in errors means no error
 		$msg = self::array_filter_recursive($errors, function($el) { return ! is_null($el); });
+    // keep out empty arrays
 		$msg = self::array_filter_recursive($errors, function($el) { return ! ( is_array($el) && empty($el));});
+    // convert objects that repesents errors into arrays
+    array_walk_recursive($msg, function(&$v, $k) { if (is_object($v)) $v = (array) $v;});
 		$this->errors = $msg;
 		$fail = ! empty($msg);
 		if ($fail) return false;
@@ -271,7 +309,7 @@ $data = [
   'component'     => [1, 20, 10, 'a', 0],
   'user' 					=> [
     'span' => 1, 
-    'ttl' => 'aaa',
+    'ttl' => ['1', 'a2a', 3],
     'money' => ['borrowed' => 250, 'from' => 'gbmob.ro'],
   ],
   'testscalar'    => [2, 'a', '12'],
@@ -280,7 +318,7 @@ $data = [
 ];
 $paranoy=[
   [
-    'filter'    => FILTER_VALIDATE_INT,
+    'filter' => FILTER_VALIDATE_INT,
     'flags' => FILTER_REQUIRE_ARRAY,
     'options'   => ['min_range' => 1, 'max_range' => 10],
     'message' => (object) ['paranoy limited',  [1, 10]],
@@ -293,102 +331,50 @@ $paranoy=[
   ],
 ];
 
-/*$args = [
-    'step' => new Def(
-      ['one' => 
-        [
-          ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'integering'], 
-          ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'floating'],
-        ],
+function rx($rx, $msg = null) {
+  $msg = is_array($msg) ? (object) $msg : $msg;
+  $fn = ['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => $rx]];
+  return is_null($msg) ? $fl : $fl + ['message' => $msg];
+}
 
-      'two' => new Def(
-				['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'twerror'],
-				'five' => new Def(['six' => 
-				[
-					['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY],
-					['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY],
-					['filter' => FILTER_CALLBACK, 'options' => function($el) {
-						return substr($el, 0, 0) == 1 ? false : $el;
-					}],
-				]
-			])
-		]
-       ),
+function ck(callable $fn, $msg = null) {
+  $msg = is_array($msg) ? (object) $msg : $msg;
+  $fl = ['filter' => \FILTER_CALLBACK, 'options' => $fn];
+  return is_null($msg) ? $fl : $fl + ['message' => $msg];
+}
 
-        'four' => [
-          ['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], 
-          FILTER_UNSAFE_RAW,
-          [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
-          ['filter' => FILTER_VALIDATE_INT, 'message' => 'needmore'],
-        ]
-      ]
-      ),
-
-      'component'  => $paranoy,
-
-    'user' => new Def(
-      [
-        'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
-        'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
-        'money' => new Def(
-          [
-            'borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY],
-            'from' => FILTER_VALIDATE_EMAIL
-          ]
-        ),
-      ]
-    ),
-
-  'doesnotexist' => FILTER_VALIDATE_INT,
-
-  'testscalar'   => [
-    [
-    'filter' => FILTER_VALIDATE_INT,
-    'flags'  => FILTER_REQUIRE_ARRAY,
-    'message' => 'only int',
-    ],
-    ['filter' => FILTER_CALLBACK, 
-       'options' => function($el){
-          return (is_numeric($el) and $el%2) ? $el : false; 
-        },
-       'message' => 'uneven',
-    ]
-  ],
-
-  'testarray'    => [
-    'filter' => FILTER_VALIDATE_INT,
-    'flags'  => FILTER_FORCE_ARRAY,
-    'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
-  ]
-]*/;
+function fl(int $filter,  int $flags = null, $options = null, $message = null) {
+  $message = is_array($message) ? (object) $message : $message;
+  return array_filter(compact('filter', 'flags', 'options', 'message'));
+}
 
 $raws = [
     'step' => 
       ['one' => 
         [
-          ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'integering'], 
-          ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'floating'],
+          fl(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY, null, 'integering'), 
+          fl(FILTER_VALIDATE_FLOAT, FILTER_REQUIRE_ARRAY, null, 'floating'),
         ],
 
       'two' => 
-				['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'twerror'],
+				['three' => fl(FILTER_VALIDATE_EMAIL, FILTER_REQUIRE_ARRAY, null, 'twerror'),
 				'five' => ['six' => 
 				[
-					['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY],
-					['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => (object) ['whaaat??', [999]]],
-					['filter' => FILTER_CALLBACK, 'options' => function($el) {
+					fl(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY),
+					fl(FILTER_VALIDATE_FLOAT, FILTER_REQUIRE_ARRAY, null, ['whaaat??', [999]]),
+					ck(function($el) {
 						return substr($el, 0, 0) == 1 ? false : $el;
-					}],
+					}),
 				]
 			]
 		]
        ,
 
         'four' => [
-          ['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], 
+          fl(FILTER_VALIDATE_EMAIL, null, null, 'fourrer'), 
           FILTER_UNSAFE_RAW,
           [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
-          ['filter' => FILTER_VALIDATE_INT, 'message' => 'needmore'],
+          fl(FILTER_VALIDATE_INT, null, null, 'needmore'),
         ]
       ]
       ,
@@ -397,11 +383,11 @@ $raws = [
 
     'user' => 
       [
-        'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
-        'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
+        'span' => fl(FILTER_VALIDATE_BOOLEAN, null, null, 'spanerr'),
+        'ttl' 	=> fl(FILTER_VALIDATE_INT, FILTER_FORCE_ARRAY, null, 'time to live more'),
         'money' => 
           [
-            'borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY],
+            'borrowed' => fl(FILTER_VALIDATE_FLOAT, FILTER_FORCE_ARRAY),
             'from' => FILTER_VALIDATE_EMAIL
           ]
         ,
@@ -411,38 +397,17 @@ $raws = [
   'doesnotexist' => FILTER_VALIDATE_INT,
 
   'testscalar'   => [
-    [
-    'filter' => FILTER_VALIDATE_INT,
-    'flags'  => FILTER_REQUIRE_ARRAY,
-    'message' => 'only int',
-    ],
-    ['filter' => FILTER_CALLBACK, 
-       'options' => function($el){
+    fl(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY, null, null,'only int'),
+    ck(function($el){
           return (is_numeric($el) and $el%2) ? $el : false; 
         },
-       'message' => 'uneven',
-    ]
+       'uneven'
+     )
   ],
 
-  'testarray'    => [
-    'filter' => FILTER_VALIDATE_INT,
-    'flags'  => FILTER_FORCE_ARRAY,
-    'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
-  ]
+  'testarray'    => fl(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY),
 ];
 
-/*$args = 
-	[
-		'testarray'    => 
-		[
-		'filter' => FILTER_VALIDATE_INT,
-		'flags'  => FILTER_FORCE_ARRAY,
-		'flags'  => FILTER_REQUIRE_ARRAY,
-		'message' => (object) ['only int, stupid!', 100],
-		]
-	]
-	;*/
-//$data = ['testarray' => [1, 'a2']];
 $def = new Def($raws);
 $checked = $def->check($data);
-var_export($def->getErrors());
+var_export(json_encode($def->getErrors(), JSON_PRETTY_PRINT));
