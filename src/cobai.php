@@ -5,12 +5,24 @@ class Def {
 	private $unconsumed, $def, $args;
 	
 	public function __construct($def) {
-    $this->unconsumed = $def;
+    $def = $this->prepareDef($def);
 
+    $this->unconsumed = $def;
 		$this->def = $def;
 		$this->messages = $this->makeMessages();
 		$this->rounds = $this->makeRounds();
   }
+
+  private function prepareDef($def) {
+    foreach($def as $k => &$v) {
+      if (self::isFilter($v)) continue;
+      if ( ! self::array_is_num($v)) {
+        $def[$k] = new self($v);
+        continue;
+      }
+    }
+    return $def;    
+  } 
 
 	public function getMessages() {
 		return $this->messages;	
@@ -112,6 +124,7 @@ class Def {
 
 	private function makeRounds() {
 		$source = &$this->def;
+    $cut = [];
 		while (count($source)) {
 			// definition collector
 			$el = [];
@@ -208,7 +221,7 @@ class Def {
 			if (is_array($value)) { 
 				if (is_numeric($key))
 				{ 
-					$isIndexed = count(array_filter(array_keys($substitute), 'is_string')) == 0;
+					$isIndexed = self::array_is_num($substitute);
 					if ($isIndexed) {
 						$original[$key] = self::array_substitute($original[$key], $substitute); 
 						continue;
@@ -247,36 +260,40 @@ class Def {
     return array_filter($input, $callback); 
   }
 
+  public static function array_is_num($arr) {
+    return count(array_filter(array_keys($arr), 'is_string')) == 0;
+  }
+
 }
 
 
 $data = [
-    'component'     => [1, 20, 10, 'a', 0],
-		'user' 					=> [
-			'span' => 1, 
-		 	'ttl' => 'aaa',
-			'money' => ['borrowed' => 250, 'from' => 'gbmob.ro'],
-		],
-    'testscalar'    => [2, 'a', '12'],
-    'testarray'     => ['2', 2],
-		'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b', 'five' => ['six' => [1, 2.5, 'one'] ]], 'four' => 'c'],
-	];
-	$paranoy=[
-      [
-        'filter'    => FILTER_VALIDATE_INT,
-        'flags' => FILTER_REQUIRE_ARRAY,
-        'options'   => ['min_range' => 1, 'max_range' => 10],
-				'message' => (object) ['paranoy limited',  [1, 10]],
-      ],
-      ['filter' => FILTER_CALLBACK, 
-       'options' => function($el){
-          return (is_numeric($el) and $el%2) ? $el : false; 
-        },
-       'message' => 'iparanoya',
-      ],
-    ];
+  'component'     => [1, 20, 10, 'a', 0],
+  'user' 					=> [
+    'span' => 1, 
+    'ttl' => 'aaa',
+    'money' => ['borrowed' => 250, 'from' => 'gbmob.ro'],
+  ],
+  'testscalar'    => [2, 'a', '12'],
+  'testarray'     => ['2', 2],
+  'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b', 'five' => ['six' => [1, 2.5, 'one'] ]], 'four' => 'c'],
+];
+$paranoy=[
+  [
+    'filter'    => FILTER_VALIDATE_INT,
+    'flags' => FILTER_REQUIRE_ARRAY,
+    'options'   => ['min_range' => 1, 'max_range' => 10],
+    'message' => (object) ['paranoy limited',  [1, 10]],
+  ],
+  ['filter' => FILTER_CALLBACK, 
+   'options' => function($el){
+      return (is_numeric($el) and $el%2) ? $el : false; 
+    },
+   'message' => 'iparanoya',
+  ],
+];
 
-$args = [
+/*$args = [
     'step' => new Def(
       ['one' => 
         [
@@ -343,6 +360,75 @@ $args = [
     'flags'  => FILTER_FORCE_ARRAY,
     'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
   ]
+]*/;
+
+$raws = [
+    'step' => 
+      ['one' => 
+        [
+          ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'integering'], 
+          ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'floating'],
+        ],
+
+      'two' => 
+				['three' => ['filter' => FILTER_VALIDATE_EMAIL, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => 'twerror'],
+				'five' => ['six' => 
+				[
+					['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_REQUIRE_ARRAY],
+					['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_REQUIRE_ARRAY, 'message' => (object) ['whaaat??', [999]]],
+					['filter' => FILTER_CALLBACK, 'options' => function($el) {
+						return substr($el, 0, 0) == 1 ? false : $el;
+					}],
+				]
+			]
+		]
+       ,
+
+        'four' => [
+          ['filter' => FILTER_VALIDATE_EMAIL, 'message'=> 'fourrer'], 
+          FILTER_UNSAFE_RAW,
+          [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
+          ['filter' => FILTER_VALIDATE_INT, 'message' => 'needmore'],
+        ]
+      ]
+      ,
+
+      'component'  => $paranoy,
+
+    'user' => 
+      [
+        'span' => ['filter' => FILTER_VALIDATE_BOOLEAN, 'message' => 'spanerr'],
+        'ttl' 	=> ['filter' => FILTER_VALIDATE_INT, 'flags' => FILTER_FORCE_ARRAY],
+        'money' => 
+          [
+            'borrowed' => ['filter' => FILTER_VALIDATE_FLOAT, 'flags' => FILTER_FORCE_ARRAY],
+            'from' => FILTER_VALIDATE_EMAIL
+          ]
+        ,
+      ]
+    ,
+
+  'doesnotexist' => FILTER_VALIDATE_INT,
+
+  'testscalar'   => [
+    [
+    'filter' => FILTER_VALIDATE_INT,
+    'flags'  => FILTER_REQUIRE_ARRAY,
+    'message' => 'only int',
+    ],
+    ['filter' => FILTER_CALLBACK, 
+       'options' => function($el){
+          return (is_numeric($el) and $el%2) ? $el : false; 
+        },
+       'message' => 'uneven',
+    ]
+  ],
+
+  'testarray'    => [
+    'filter' => FILTER_VALIDATE_INT,
+    'flags'  => FILTER_FORCE_ARRAY,
+    'flags'  => FILTER_REQUIRE_ARRAY //| FILTER_FORCE_ARRAY,
+  ]
 ];
 
 /*$args = 
@@ -356,7 +442,7 @@ $args = [
 		]
 	]
 	;*/
-$data = ['testarray' => [1, 'a2']];
-$def = new Def($args);
+//$data = ['testarray' => [1, 'a2']];
+$def = new Def($raws);
 $checked = $def->check($data);
 var_export($def->getErrors());
