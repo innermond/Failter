@@ -1,174 +1,311 @@
 <?php namespace Innermond\Failter;
 
+/**
+ * Class: Failter
+ *
+ */
 class Failter {
 
+  public const
+    REQUIRED = 'required',
+    INVALID = 'invalid';
+
+	
+  private 
+    $unconsumed, // save here definition
+    $def, // definition that will be consumed by rounds
+    $args; // slice of definition, also consumable
+	
+  public function __construct(array $def = null) {
+    if (is_null($def)) return;
+    $this->init($def);
+  }
+
+  public function init(array $def) {
+    $def = $this->prepareFailter($def);
+
+    $this->unconsumed = $def;
+		$this->def = $def;
+		$this->messages = $this->makeMessages();
+		$this->rounds = $this->makeRounds();
+  }
+
   /**
-   * $defs = ['name' => [
-   *    [$filter, $msg], $filter
-   *  ]
-   * ]
+   * prepareFailter
+   * transform every branch of associative array $def into a class Failter
+   * used internally to provide a proper argument for methods [run, runRound]
+   *
+   * @param array $def
+   * @return array
    */
-  public function fromDefinitions($definitions) {
-    foreach($definitions as $k => $defs) {
-      // operate on field $k
-      $this->on($k);
-      if ( ! is_iterable($defs)) $defs = [$defs];
-      foreach($defs as $def) {
-        //  array not asociative
-				$sequential = false;
-				if (is_iterable($def))
-          $sequential = count(array_filter(array_keys($def), 'is_string')) == 0;
-        $message = null;
-        if ($sequential) {
-          [$filter, $message] = $def;
-          $this->with($filter, $message);
-        } else {
-          $filter = $def;
-          $this->with($filter);
+  private function prepareFailter(array $def) : array {
+    foreach($def as $k => &$v) {
+      if (static::isFilter($v)) continue;
+      if ( ! static::array_is_num($v)) {
+        $def[$k] = new static($v);
+        continue;
+      }
+    }
+    return $def;    
+  } 
+
+	public function getMessages() {
+		return $this->messages;	
+	}
+
+  /**
+   * undef
+   *
+   * @param string $k
+   */
+	private function undef(string $k) {
+		$this->args[$k] = null;
+	}
+	
+	private  function runRound($i, $data) {
+		$this->args = $this->rounds[$i];
+		$partial=[];
+		foreach($this->args as $k => $v) {
+			if ($v instanceOf static) {
+				$partial[$k] = $v->run($data[$k] ?? []);
+				// remove this definition because args in filter_var_array do not know objects
+				$this->undef($k);
+			}
+		}
+		$curr = filter_var_array($data, $this->args);
+		$this->args = null;
+		return ($partial + $curr);
+	}
+
+  private $data;
+
+  public function getData() {
+    return $this->data;
+  }
+
+	private function run($data) {
+    $this->data = $data;
+
+		$out=[];
+		foreach($this->rounds as $i => $args) {
+			$out[] = $this->runRound($i, $data);
+    }
+		return array_merge_recursive(...$out);
+	}
+
+  private function unjoin($arr, $size) {
+    if ( ! is_array($arr)) $arr = [$arr];
+    $k = array_chunk($arr, $size);
+    $m = array_map(null, ...$k);
+    return $m; 
+  }
+
+  /**
+   * chunk
+   * Prepare an array to have for every associative key present on definitions
+   * an array representing results of all operations done with 
+   *
+   * @param array $filtered
+   */
+  private function chunk(array $filtered=[]) {
+    foreach($this->unconsumed as $k => $elem) {
+      $elems = $elem;
+      if ( 
+        static::isFilter($elems) or 
+        ! is_array($elem)
+      ) 
+      $elems = [$elem];
+
+      if ( ! isset($filtered)) continue;
+      $elf = &$filtered[$k];
+      if ( ! isset($this->data[$k])) continue;
+      $size = count($this->data[$k]);
+      foreach($elems as $el) {
+        // deal with a filter
+        $filterInNeed = 
+          static::isFilter($el) && 
+          isset($el['flags']) && 
+          $this->needChunking($el['flags']);
+        if ($filterInNeed) {
+          // chunking
+          $elf = $this->unjoin($elf, $size);
+        }
+        // deal with a def
+        else if ($el instanceOf static) {
+          $elf = $el->chunk($elf);
         }
       }
     }
-    // no more field to operate on
-    $this->field = null;
-    return $this;
+    return $filtered;
   }
 
-  /* hold definition array for filters that is consumed whan call run method
-     after run works $def is empty
-  */
-	private $def=[];
+	private $errors = [];
 
-	public function callback($key, callable $fn, ...$msg) {
-		$this->def[$key][] = ['filter' => \FILTER_CALLBACK, 'options' => $fn] + ['message' => $msg];
-;
-		return $this;
+	public function getErrors() {
+		return $this->errors;
 	}
 
-	public function regex($key, $rx, ...$msg) {
-		$this->def[$key][] = ['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => $rx]] + ['message' => $msg];
-		return $this;
-	}
+  /**
+   * check
+   * Run main methods on $data in order to validate accordingly with definition rules
+   *
+   * @param array $data
+   */
+  public function check(array $data) {
+    $filtered = $this->run($data);
+    $chunked = $this->chunk($filtered);
+    // build errors
+		$errors = static::array_substitute($chunked, $this->messages);
+    // remove null values, just keep errors as null values in errors means no error
+		$msg = static::array_filter_recursive($errors, function($el) { return ! is_null($el); });
+    // keep out empty arrays
+		$msg = static::array_filter_recursive($errors, function($el) { return ! ( is_array($el) && empty($el));});
+    // convert objects that repesents errors into arrays
+    array_walk_recursive($msg, function(&$v, $k) { if (is_object($v)) $v = (array) $v;});
+		$this->errors = $msg;
+		$fail = ! empty($msg);
+		if ($fail) return false;
+    return $chunked;
+  }
 
-	public function filter($key, $filter, ...$msg) {
-		if ( ! is_array($filter)) $filter = ['filter' => $filter];
-		$this->def[$key][] = $filter + ['message' => $msg];
-		return $this;
-	}
+	private $rounds=[];
 
-	public function var($filter, $flags=null, ...$msg) {
-		$var = compact('filter', 'flags');
-		return $this->with($var, ...$msg);
-	}
-
-	public function needed(...$msg) {
-		return $this->with(\FILTER_UNSAFE_RAW, ...$msg);
-	}
-
-	private $field;
-
-	public function on(string $name) {
-    // check even for long empty string case
-    if (empty(trim($name))) {
-     throw new \InvalidArgumentException('missing field');
-    }
-		$this->field = $name;
-		return $this;
-	}
-
-	public function with($filter, ...$msg) {
-		if (is_null($this->field)) {
-			throw new \Exception('set field before call ' . __METHOD__);
-		}
-		$key = $this->field;
-		$flatten = array_merge([$key, $filter], $msg);
-
-		switch (true) {
-			case is_string($filter) :
-				call_user_func_array([$this, 'regex'], $flatten);
-			break;
-			case is_callable($filter) :
-				call_user_func_array([$this, 'callback'], $flatten);
-			break;
-			default :
-				call_user_func_array([$this, 'filter'], $flatten);
-			break;
-		}
-		return $this;
-	}
-
-	private $error;
-	private $defs;
-
-  public function run($params=[]) {
-    if (! is_iterable($params)) return false;
-		$this->field = null;
-		$this->defs = [];
-		
-		// prepare $this->defs from $this->def as such every item of it to be consumable by filter_var_array
-		while (count($this->def)) {
+	private function makeRounds() {
+		$source = &$this->def;
+    $cut = [];
+		while (count($source)) {
 			// definition collector
 			$el = [];
-			foreach($this->def as $k => &$v) { // &$v need to be reference for array_shift 
+			foreach($source as $k => &$v) { // &$v need to be reference for array_shift 
 				// no more definitions
 				if (empty($v)) {
 					// shorten life of while cycle here
-					unset($this->def[$k]);
+					unset($source[$k]);
 					continue;
 				}
-				// collect only first
-				$el[$k] = array_shift($v); // instead &$v we can use $this->def[$k] which is a reference by itself;
+        $isfilter = static::isFilter($v);
+				if (
+          $isfilter
+					or 
+					$v instanceOf static
+				) 
+        {
+					$el[$k] = $v;
+					$v = [];
+				} else if (is_array($v) and ! static::isFilter($v)) {
+					// collect only first
+					if ( ! empty($v)) $el[$k] = array_shift($v); // instead &$v we can use $this->def[$k] which is a reference by itstatic;
+				}
 			}
-			if (! empty($el)) $this->defs[] = $el;
+			if (! empty($el)) $cut[] = $el;
 		}
+		return $cut;
+	}
 
-		// errors reported here
-		$this->error = [];
+	private $messages=[];
 
-		$filtered = array_reduce($this->defs, function($carry, $def) use (&$params) {
-			
-			// finally we validate / filter
-			$newcarry = \filter_var_array($params, $def);
-
-      // $params is a reference to keep valid modified values, replacing all invalids (null and false) with their original values to be validated by next iteration
-      $params = array_filter($newcarry) + $params;
-			
-			// cycle through filtered result
-			foreach($newcarry as $key => $val) {
-				// no error yet
-				$err = null;
-				
-				// get error message from definition; we assume every filter definition has an message by default an empty array
-				$msg = null;
-				if (isset($def[$key]['message']) and !empty($def[$key]['message'])) $msg = $def[$key]['message'];
-
-        // start checking for errors; missing keys are added as NULL - default behaviour of filter_var_array
-				if (is_null($val)) {
-					$err = $msg ?? ['required'];
-				} else if (false === $val) {// error detected
-					$err = $msg ?? ['invalid'];
-				} 
-				// if an error occured add it
-				if ( ! is_null($err)) $this->error[$key][] = $err;
+	private function makeMessages() {
+		$out=[];
+		foreach($this->def as $k => $v) {
+			$out[$k] = null;
+			if ($v instanceOf static) {
+				$out[$k] = empty($v->messages) ? $v->makeMessages() : $v->messages;
+			} else if (static::isFilter($v)) {
+						$out[$k] = $v['message'] ?? null;
+			} else if (is_array($v)) {// array of filters
+				if (array_key_exists('message', $v)) // boss message
+					$out[$k] = $v['message'];
+				else {
+					foreach($v as $vv) {
+						if (is_array($vv) and array_key_exists('message', $vv))
+							$out[$k][] = $vv['message'];
+						else
+							$out[$k][] = null;
+					}
+				}
 			}
-			// merge results; every field has an array with values that represents filtered values along the validation, think of multiple filters
-			return array_merge_recursive($carry, $newcarry);
-		}, []);
-
-		if (count($this->error)) return false;
-		return $this->prepareFiltered($filtered);
-	}
-
-	/**
-	 * @return array whoose field's values has been colapsed to their last value;
-	 */
-	private function prepareFiltered($filtered) : array {
-		foreach($filtered as $k => &$v) {
-			if (count($v) > 1) $v = array_pop($v);
 		}
-		return $filtered;
+		return $out;
 	}
 
-	public function getError() {
-		return $this->error;
+  public function needChunking($flag) {
+    $require = FILTER_REQUIRE_ARRAY == (FILTER_REQUIRE_ARRAY & $flag);
+    $force = FILTER_FORCE_ARRAY == (FILTER_FORCE_ARRAY & $flag);
+    return ($require || $force);
+  }
+	
+	public static function filter_ids() {
+		static $out;
+		if (is_array($out)) return $out;
+		$filters = filter_list(); 
+		foreach($filters as $filter_name) { 
+			$out[] = filter_id($filter_name);
+		} 
+		return $out;
 	}
+
+	public static function isFilter($filter) {
+		if (
+			is_int($filter) and 
+			in_array($filter, static::filter_ids())
+		) 
+		return true;
+		
+		if (
+			is_array($filter) and 
+			array_key_exists('filter', $filter) and
+			in_array($filter['filter'], static::filter_ids())
+		) 
+		return true;
+		
+		return false;
+	}
+
+	public static function array_substitute(array $original, $substitute) {
+		foreach ($original as $key => $value) { 
+			if (is_array($value)) { 
+				if (is_numeric($key)) { 
+					$isIndexed = static::array_is_num($substitute);
+					if ($isIndexed) {
+						$original[$key] = static::array_substitute($original[$key], $substitute); 
+						continue;
+					}
+				}
+				$original[$key] = static::array_substitute($original[$key], $substitute[$key]); 
+			}
+
+			else { 
+				$original[$key] = null;
+				if ($value === null or $value === false) {
+					$msg = ($value === null) ? static::REQUIRED : static::INVALID; 
+					if (is_array($substitute)) {
+						$msg = $substitute[$key] ?? $msg;
+					} else if (is_string($substitute)) {
+						$msg = $substitute;
+					}
+					else if (is_object($substitute)) {
+						$msg = $substitute;
+					}	
+					$original[$key] = $msg;
+				}
+			} 
+		} 
+		// Return the joined array 
+		return $original; 
+	}
+
+	public static function array_filter_recursive(&$input, $callback = null) { 
+    foreach ($input as $key => &$value) { 
+			if (is_array($value)) { 
+        $value = static::array_filter_recursive($value, $callback); 
+      } 
+    } 
+    
+    return array_filter($input, $callback); 
+  }
+
+  public static function array_is_num($arr) {
+    return count(array_filter(array_keys($arr), 'is_string')) == 0;
+  }
+
 }
