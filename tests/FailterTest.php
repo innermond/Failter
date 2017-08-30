@@ -21,88 +21,103 @@ class FailterTest extends TestCase {
    * @dataProvider emptyArguments
    */
 	public function testInitEmpty($param) {
-		$filtered = $this->fail->init($param);
+		$filtered = $this->fail->init([])->check($param);
 		$this->assertEmpty($filtered);
 	}
 
-  public function fluentDef() {
-  // setUp hasn't been run yet
-  $fail = new Failter;
-  $superstrip = [\FILTER_SANITIZE_STRING, \FILTER_FLAG_STRIP_BACKTICK | \FILTER_FLAG_ENCODE_AMP];
-  $between = function($min, $max, $greedy=true) {                                                                                                                                                                          
-    return function($val) use ($min, $max, $greedy) {
-      $len = is_numeric($val) ? $val : is_array($val) ? count($val) : strlen($val);
-      if($greedy)
-        $out = ($min <= $len and $max >= $len) ? $val : false;
-      else
-        $out = ($min < $len and $max > $len) ? $val : false;
-    return $out;
-    };
-  };
-  $upper = function($el) {
-    return strtoupper($el);
-  };
+  public function provideRegularExpressions() {
 
-  $def = [
-  'step' => 
-    ['one' => 
+    $fail = $this->fail;
+    $superstrip = [\FILTER_SANITIZE_STRING, \FILTER_FLAG_STRIP_BACKTICK | \FILTER_FLAG_ENCODE_AMP];
+    $between = function($min, $max, $greedy=true) {
+      return function($val) use ($min, $max, $greedy) {
+        $len = is_numeric($val) ? $val : is_array($val) ? count($val) : strlen($val);
+        if($greedy)
+          $out = ($min <= $len and $max >= $len) ? $val : false;
+        else
+          $out = ($min < $len and $max > $len) ? $val : false;
+      return $out;
+      };
+    };
+    $upper = function($el) {
+      return strtoupper($el);
+    };
+
+    $data = ['name' => 'UPPERCASE'];
+    $checks = ['name' => rx('/^[A-Z]+$/')];
+    $want = ['name' => 'UPPERCASE'];
+
+    return [
+      [$data, $checks, $want],
       [
-        must(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY, null, 'integering'), 
-        must(FILTER_VALIDATE_FLOAT, FILTER_REQUIRE_ARRAY, null, 'floating'),
+        $data = ['name' => '123'],
+        ['name' => rx('/\d+/')],
+        $data,
       ],
 
-    'two' => 
-      ['three' => must(FILTER_VALIDATE_EMAIL, FILTER_REQUIRE_ARRAY, null, 'twerror'),
-      'five' => ['six' => 
-      [
-        must(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY),
-        must(FILTER_VALIDATE_FLOAT, FILTER_REQUIRE_ARRAY, null, ['whaaat??', [999]]),
-        ck(function($el) {
-          return substr($el, 0, 0) == 1 ? false : $el;
-        }),
-      ]
-    ]
-  ]
-     ,
+    ];
+    /*
+    return;
+    $rules = [
+    'step' => 
+      ['one' => 
+        [
+          must(\FILTER_VALIDATE_INT, \FILTER_REQUIRE_ARRAY, null, 'integering'), 
+          must(\FILTER_VALIDATE_FLOAT, \FILTER_REQUIRE_ARRAY, null, 'floating'),
+        ],
 
-      'four' => [
-        must(FILTER_VALIDATE_EMAIL, null, null, 'fourrer'), 
-        FILTER_UNSAFE_RAW,
-        [FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
-        must(FILTER_VALIDATE_INT, null, null, 'needmore'),
+      'two' => 
+        ['three' => must(\FILTER_VALIDATE_EMAIL, \FILTER_REQUIRE_ARRAY, null, 'twerror'),
+        'five' => ['six' => 
+        [
+          must(\FILTER_VALIDATE_INT, \FILTER_REQUIRE_ARRAY),
+          must(\FILTER_VALIDATE_FLOAT, \FILTER_REQUIRE_ARRAY, null, ['whaaat??', [999]]),
+          ck(function($el) {
+            return substr($el, 0, 0) == 1 ? false : $el;
+          }),
+        ]
       ]
     ]
+       ,
+
+        'four' => [
+          must(\FILTER_VALIDATE_EMAIL, null, null, 'fourrer'), 
+          \FILTER_UNSAFE_RAW,
+          [\FILTER_UNSAFE_RAW, \FILTER_UNSAFE_RAW, \FILTER_UNSAFE_RAW, 'message' => 'dumpit'],
+          must(\FILTER_VALIDATE_INT, null, null, 'needmore'),
+        ]
+      ]
+      ,
+
+      'component'  => $paranoy,
+
+    'user' => 
+      [
+        'span' => must(\FILTER_VALIDATE_BOOLEAN, null, null, 'spanerr'),
+        'ttl' 	=> must(\FILTER_VALIDATE_INT, \FILTER_FORCE_ARRAY, null, 'time to live more'),
+        'money' => 
+          [
+            'borrowed' => must(\FILTER_VALIDATE_FLOAT, \FILTER_FORCE_ARRAY),
+            'from' => \FILTER_VALIDATE_EMAIL
+          ]
+        ,
+      ]
     ,
 
-    'component'  => $paranoy,
+  'doesnotexist' => \FILTER_VALIDATE_INT,
 
-  'user' => 
-    [
-      'span' => must(FILTER_VALIDATE_BOOLEAN, null, null, 'spanerr'),
-      'ttl' 	=> must(FILTER_VALIDATE_INT, FILTER_FORCE_ARRAY, null, 'time to live more'),
-      'money' => 
-        [
-          'borrowed' => must(FILTER_VALIDATE_FLOAT, FILTER_FORCE_ARRAY),
-          'from' => FILTER_VALIDATE_EMAIL
-        ]
-      ,
-    ]
-  ,
+  'testscalar'   => [
+    must(\FILTER_VALIDATE_INT, \FILTER_REQUIRE_ARRAY, null, null,'only int'),
+    ck(function($el){
+          return (is_numeric($el) and $el%2) ? $el : false; 
+        },
+       'uneven'
+     )
+  ],
 
-'doesnotexist' => FILTER_VALIDATE_INT,
+  'testarray'    => must(\FILTER_VALIDATE_INT, \FILTER_REQUIRE_ARRAY),
+  ];
 
-'testscalar'   => [
-  must(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY, null, null,'only int'),
-  ck(function($el){
-        return (is_numeric($el) and $el%2) ? $el : false; 
-      },
-     'uneven'
-   )
-],
-
-'testarray'    => must(FILTER_VALIDATE_INT, FILTER_REQUIRE_ARRAY),
-];
-  yield [$def];
   $data = [
     'component'     => [1, 20, 10, 'a', 0],
     'user' 					=> [
@@ -114,23 +129,23 @@ class FailterTest extends TestCase {
     'testarray'     => ['2', 2],
     'step' => ['one' => ['0.5', 1], 'two' => ['three' => 'b', 'five' => ['six' => [1, 2.5, 'one'] ]], 'four' => 'c'],
   ];
-      
+    
+  yield [$data, $rules];*/
 }
 
 	/**
-	 * @dataProvider fluentDef
+	 * @dataProvider provideRegularExpressions
 	 */
-	public function _testRunWithFluentDefinitions($fail, $params, $want, $msg) {
-    $this->markTestSkipped();
-  	$filtered = $fail->init($params);
+	public function testRegularExpressionFilterThatExpects($data, $checks, $want) {
+    $filtered = $this->fail->init($checks)->check($data);
+    if ($filtered === false) $this->fail();
     $this->assertEquals($filtered, $want);
-		$this->assertEquals($msg, $fail->getError());
 	}
 }
 
 function rx($rx, $msg = null) {
   $msg = is_array($msg) ? (object) $msg : $msg;
-  $fn = ['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => $rx]];
+  $fl = ['filter' => \FILTER_VALIDATE_REGEXP, 'options' => ['regexp' => $rx]];
   return is_null($msg) ? $fl : $fl + ['message' => $msg];
 }
 

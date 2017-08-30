@@ -28,6 +28,8 @@ class Failter {
 		$this->def = $def;
 		$this->messages = $this->makeMessages();
 		$this->rounds = $this->makeRounds();
+
+    return $this;
   }
 
   /**
@@ -90,7 +92,7 @@ class Failter {
 		foreach($this->rounds as $i => $args) {
 			$out[] = $this->runRound($i, $data);
     }
-		return array_merge_recursive(...$out);
+		return empty($out) ? [] : array_merge_recursive(...$out);
 	}
 
   private function unjoin($arr, $size) {
@@ -159,7 +161,7 @@ class Failter {
     // remove null values, just keep errors as null values in errors means no error
 		$msg = static::array_filter_recursive($errors, function($el) { return ! is_null($el); });
     // keep out empty arrays
-		$msg = static::array_filter_recursive($errors, function($el) { return ! ( is_array($el) && empty($el));});
+		$msg = static::array_filter_recursive($msg, function($el) { return ! ( is_array($el) && empty($el));});
     // convert objects that repesents errors into arrays
     array_walk_recursive($msg, function(&$v, $k) { if (is_object($v)) $v = (array) $v;});
 		$this->errors = $msg;
