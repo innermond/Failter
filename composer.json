@@ -2,12 +2,13 @@
     "name": "innermond/failter",
     "description": "Extending php filters library with deep levels fields and multiple filters per field",
     "type": "library",
+    "license": "MIT",
     "require-dev": {
         "phpunit/phpunit": "^6.3"
     },
     "authors": [
         {
-            "name": "mob",
+            "name": "Gabriel Brăilă",
             "email": "innermond@yahoo.com"
         }
     ],
